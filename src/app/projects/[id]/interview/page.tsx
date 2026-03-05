@@ -154,13 +154,22 @@ export default function InterviewPage() {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      console.error('[interview] AI error:', raw);
+
+      // ユーザー向けのメッセージに変換
+      let userMessage = '申し訳ありません、返答の生成中にエラーが発生しました。もう一度試してみてください。';
+      if (raw.includes('API key') || raw.includes('APIキーが設定されていません')) {
+        userMessage = 'APIキーが正しく設定されていないようです。右上の「設定」からAPIキーを確認してください。';
+      } else if (raw.includes('404') || raw.includes('not found')) {
+        userMessage = 'AIモデルが見つかりませんでした。設定のモデル名を確認してください。';
+      } else if (raw.includes('429') || raw.includes('quota') || raw.includes('rate')) {
+        userMessage = 'APIの利用制限に達しました。しばらく待ってから再試行してください。';
+      }
+
       setMessages(prev => {
         const next = [...prev];
-        next[next.length - 1] = {
-          role: 'assistant',
-          content: `⚠️ エラーが発生しました。\n\n${message}`,
-        };
+        next[next.length - 1] = { role: 'assistant', content: `⚠️ ${userMessage}` };
         return next;
       });
     } finally {
