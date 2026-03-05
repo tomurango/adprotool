@@ -35,7 +35,9 @@ export const ai: AIProvider = {
 };
 
 // アプリ内でのAI使用はすべてここ経由
-export { buildInterviewMessages, parseInterviewResponse } from './prompts/interview';
+export { buildInterviewMessages } from './prompts/interview';
+export { buildExtractionMessages, parseExtractionResult } from './prompts/extraction';
 export { buildSNSPostPrompt } from './prompts/sns-post';
 export { buildVideoScriptPrompt } from './prompts/video-script';
 export type { AIProvider, AIMessage, ChatOptions } from './types';
+export type { ExtractionResult } from './prompts/extraction';

@@ -1,11 +1,15 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { projects, checklistItems, conversations, messages } from '@/lib/db/schema';
 import { initDb } from '@/lib/db/init';
-import { ai, buildInterviewMessages, parseInterviewResponse } from '@/lib/ai';
+import {
+  ai,
+  buildInterviewMessages,
+  buildExtractionMessages,
+  parseExtractionResult,
+} from '@/lib/ai';
 import type { AIMessage } from '@/lib/ai';
 import { nanoid } from 'nanoid';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, asc } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,16 +19,15 @@ export async function POST(request: Request) {
   const { projectId, conversationId, checklistItemId, userMessage } = body;
 
   if (!projectId || !userMessage) {
-    return NextResponse.json({ error: 'projectId と userMessage は必須です' }, { status: 400 });
+    return Response.json({ error: 'projectId と userMessage は必須です' }, { status: 400 });
   }
 
-  // プロジェクト情報取得
+  // プロジェクト・チェックシート取得
   const project = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project.length) {
-    return NextResponse.json({ error: 'プロジェクトが見つかりません' }, { status: 404 });
+    return Response.json({ error: 'プロジェクトが見つかりません' }, { status: 404 });
   }
 
-  // チェックシート取得
   const items = await db
     .select()
     .from(checklistItems)
@@ -32,7 +35,7 @@ export async function POST(request: Request) {
     .orderBy(asc(checklistItems.order));
 
   const currentItem = checklistItemId
-    ? items.find(i => i.id === checklistItemId) ?? null
+    ? (items.find(i => i.id === checklistItemId) ?? null)
     : null;
 
   // 会話取得または作成
@@ -54,17 +57,16 @@ export async function POST(request: Request) {
     .where(eq(messages.conversationId, convId))
     .orderBy(asc(messages.createdAt));
 
-  // ユーザーメッセージ保存
-  const userMsgId = nanoid();
+  // ユーザーメッセージをDBに保存
   await db.insert(messages).values({
-    id: userMsgId,
+    id: nanoid(),
     conversationId: convId,
     role: 'user',
     content: userMessage,
     createdAt: new Date(),
   });
 
-  // AI呼び出し用メッセージ構築
+  // 会話AIに渡す履歴を構築
   const conversationHistory: AIMessage[] = [
     ...history.map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: userMessage },
@@ -73,55 +75,87 @@ export async function POST(request: Request) {
   const { messages: aiMessages, options } = buildInterviewMessages(
     project[0],
     items,
-    currentItem ?? null,
+    currentItem,
     conversationHistory
   );
 
-  // AIレスポンス生成（ストリーミング）
+  // SSEストリーミング
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      const send = (data: object) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+
       let fullResponse = '';
       try {
+        // ── Step 1: 会話AI（ストリーミング）──
         for await (const chunk of ai.stream(aiMessages, options)) {
           fullResponse += chunk;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk })}\n\n`));
+          send({ chunk });
         }
 
-        const { content, checkComplete } = parseInterviewResponse(fullResponse);
-
-        // AIメッセージ保存
+        // 会話AIの返答をDBに保存
         const aiMsgId = nanoid();
         await db.insert(messages).values({
           id: aiMsgId,
           conversationId: convId,
           role: 'assistant',
-          content,
+          content: fullResponse,
           createdAt: new Date(),
         });
 
-        // チェック完了処理
-        if (checkComplete && checklistItemId) {
-          await db
-            .update(checklistItems)
-            .set({ isCompleted: true, updatedAt: new Date() })
-            .where(eq(checklistItems.id, checklistItemId));
+        // ── Step 2: 抽出AI（非ストリーミング）──
+        // 未完了の項目がある場合のみ実行
+        const unansweredItems = items.filter(i => !i.isCompleted);
+        const updatedItemIds: string[] = [];
+
+        if (unansweredItems.length > 0) {
+          const fullHistory: AIMessage[] = [
+            ...conversationHistory,
+            { role: 'assistant', content: fullResponse },
+          ];
+          const { messages: extractMsgs, options: extractOpts } =
+            buildExtractionMessages(unansweredItems, fullHistory);
+
+          const extractionRaw = await ai.chat(extractMsgs, extractOpts);
+          const extraction = parseExtractionResult(extractionRaw);
+
+          if (extraction) {
+            for (const result of extraction.items) {
+              if (!result.answered) continue;
+              await db
+                .update(checklistItems)
+                .set({
+                  isCompleted: true,
+                  answer: result.summary,
+                  updatedAt: new Date(),
+                })
+                .where(eq(checklistItems.id, result.id));
+              updatedItemIds.push(result.id);
+            }
+          }
         }
 
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({
-              done: true,
-              conversationId: convId,
-              checkComplete,
-              messageId: aiMsgId,
-            })}\n\n`
-          )
-        );
+        // ── Step 3: 進捗管理（コード）──
+        // 次にフォーカスする項目を選ぶ（未完了の中で最も order が小さいもの）
+        const allItems = await db
+          .select()
+          .from(checklistItems)
+          .where(eq(checklistItems.projectId, projectId))
+          .orderBy(asc(checklistItems.order));
+
+        const nextItem = allItems.find(i => !i.isCompleted) ?? null;
+        const allCompleted = allItems.every(i => i.isCompleted);
+
+        send({
+          done: true,
+          conversationId: convId,
+          updatedItemIds,
+          nextChecklistItemId: nextItem?.id ?? null,
+          allCompleted,
+        });
       } catch (err) {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: String(err) })}\n\n`)
-        );
+        send({ error: String(err) });
       } finally {
         controller.close();
       }

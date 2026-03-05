@@ -126,14 +126,29 @@ export default function InterviewPage() {
           }
           if (json.done) {
             setConversationId(json.conversationId);
-            if (json.checkComplete) {
+            // 抽出AIが更新した項目をチェック済みにする
+            if (json.updatedItemIds?.length > 0) {
               setItems(prev =>
                 prev.map(item =>
-                  item.id === currentItemId ? { ...item, isCompleted: true } : item
+                  json.updatedItemIds.includes(item.id)
+                    ? { ...item, isCompleted: true }
+                    : item
                 )
               );
-              const nextItem = items.find(i => !i.isCompleted && i.id !== currentItemId);
-              if (nextItem) setCurrentItemId(nextItem.id);
+            }
+            // 進捗管理: 次のフォーカス項目へ
+            if (json.nextChecklistItemId) {
+              setCurrentItemId(json.nextChecklistItemId);
+            }
+            // 全項目完了
+            if (json.allCompleted) {
+              setMessages(prev => [
+                ...prev,
+                {
+                  role: 'assistant',
+                  content: 'チェックシートの全項目が揃いました！「アウトプット」から投稿文を生成できます。',
+                },
+              ]);
             }
           }
         }

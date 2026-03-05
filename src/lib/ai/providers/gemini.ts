@@ -10,22 +10,30 @@ export class GeminiProvider implements AIProvider {
     this.model = config.model;
   }
 
-  async chat(messages: AIMessage[], options?: ChatOptions): Promise<string> {
-    const model = this.client.getGenerativeModel({ model: this.model });
+  private getModel(systemPrompt?: string) {
+    // systemInstruction は model レベルで設定する（chat レベルでは形式エラーになる）
+    return this.client.getGenerativeModel({
+      model: this.model,
+      systemInstruction: systemPrompt
+        ? { role: 'user', parts: [{ text: systemPrompt }] }
+        : undefined,
+    });
+  }
 
-    const systemPrompt = options?.systemPrompt ?? messages.find(m => m.role === 'system')?.content;
+  async chat(messages: AIMessage[], options?: ChatOptions): Promise<string> {
+    const systemPrompt = options?.systemPrompt
+      ?? messages.find(m => m.role === 'system')?.content;
     const chatMessages = messages.filter(m => m.role !== 'system');
 
+    const model = this.getModel(systemPrompt);
     const history = chatMessages.slice(0, -1).map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }));
-
     const lastMessage = chatMessages[chatMessages.length - 1];
 
     const chat = model.startChat({
       history,
-      systemInstruction: systemPrompt,
       generationConfig: {
         temperature: options?.temperature,
         maxOutputTokens: options?.maxTokens,
@@ -37,21 +45,19 @@ export class GeminiProvider implements AIProvider {
   }
 
   async *stream(messages: AIMessage[], options?: ChatOptions): AsyncGenerator<string> {
-    const model = this.client.getGenerativeModel({ model: this.model });
-
-    const systemPrompt = options?.systemPrompt ?? messages.find(m => m.role === 'system')?.content;
+    const systemPrompt = options?.systemPrompt
+      ?? messages.find(m => m.role === 'system')?.content;
     const chatMessages = messages.filter(m => m.role !== 'system');
 
+    const model = this.getModel(systemPrompt);
     const history = chatMessages.slice(0, -1).map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }));
-
     const lastMessage = chatMessages[chatMessages.length - 1];
 
     const chat = model.startChat({
       history,
-      systemInstruction: systemPrompt,
       generationConfig: {
         temperature: options?.temperature,
         maxOutputTokens: options?.maxTokens,
