@@ -31,13 +31,16 @@ export default function InterviewPage() {
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     Promise.all([
       fetch(`/api/projects/${id}`).then(r => r.json()),
       fetch(`/api/projects/${id}/checklist`).then(r => r.json()),
-    ]).then(([project, checklist]) => {
+      fetch('/api/settings/status').then(r => r.json()),
+    ]).then(([project, checklist, status]) => {
+      setApiKeyConfigured(status.configured);
       setProjectName(project.name);
       setItems(checklist);
 
@@ -145,6 +148,43 @@ export default function InterviewPage() {
 
   const currentItem = items.find(i => i.id === currentItemId);
   const completed = items.filter(i => i.isCompleted).length;
+
+  if (apiKeyConfigured === false) {
+    return (
+      <main className="min-h-screen bg-gray-50 flex flex-col">
+        <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+          <button onClick={() => router.push(`/projects/${id}`)} className="text-gray-400 hover:text-gray-600 text-sm">
+            ← 戻る
+          </button>
+          <span className="font-semibold text-gray-900 text-sm">{projectName} - インタビュー</span>
+        </header>
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="max-w-sm w-full text-center">
+            <div className="text-5xl mb-4">🔑</div>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">APIキーが必要です</h2>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+              インタビュー機能を使うにはAIのAPIキーが必要です。
+              設定ページでGemini・Claude・OpenAIいずれかのAPIキーを登録してください。
+            </p>
+            <div className="flex flex-col gap-3">
+              <Link
+                href="/settings"
+                className="bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors"
+              >
+                設定ページへ
+              </Link>
+              <button
+                onClick={() => router.push(`/projects/${id}`)}
+                className="text-gray-400 text-sm hover:text-gray-600"
+              >
+                プロジェクトに戻る
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col">

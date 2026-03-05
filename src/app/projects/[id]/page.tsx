@@ -35,6 +35,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
 
   async function handleDelete() {
     if (!confirm(`「${project?.name}」を削除しますか？\nチェックシートとアウトプットもすべて削除されます。`)) return;
@@ -44,12 +45,14 @@ export default function ProjectDetailPage() {
   }
 
   useEffect(() => {
-    fetch(`/api/projects/${id}`)
-      .then(r => r.json())
-      .then(data => {
-        setProject(data);
-        setLoading(false);
-      });
+    Promise.all([
+      fetch(`/api/projects/${id}`).then(r => r.json()),
+      fetch('/api/settings/status').then(r => r.json()),
+    ]).then(([projectData, statusData]) => {
+      setProject(projectData);
+      setApiKeyConfigured(statusData.configured);
+      setLoading(false);
+    });
   }, [id]);
 
   if (loading) {
@@ -104,14 +107,35 @@ export default function ProjectDetailPage() {
             </div>
           </div>
 
+          {/* APIキー未設定の警告 */}
+          {apiKeyConfigured === false && (
+            <div className="mt-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+              <span className="text-amber-500 mt-0.5 shrink-0">⚠️</span>
+              <p className="text-xs text-amber-700">
+                インタビューを始めるにはAPIキーが必要です。
+                <Link href="/settings" className="underline font-medium ml-1">設定ページ</Link>
+                で登録してください。
+              </p>
+            </div>
+          )}
+
           {/* アクションボタン */}
-          <div className="flex gap-3 mt-5">
-            <Link
-              href={`/projects/${id}/interview`}
-              className="flex-1 bg-indigo-600 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
-            >
-              インタビューを始める
-            </Link>
+          <div className="flex gap-3 mt-4">
+            {apiKeyConfigured === false ? (
+              <Link
+                href="/settings"
+                className="flex-1 bg-amber-500 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors"
+              >
+                APIキーを設定する
+              </Link>
+            ) : (
+              <Link
+                href={`/projects/${id}/interview`}
+                className="flex-1 bg-indigo-600 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              >
+                インタビューを始める
+              </Link>
+            )}
             <Link
               href={`/projects/${id}/checklist`}
               className="flex-1 border border-gray-300 text-gray-700 text-center py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors"
