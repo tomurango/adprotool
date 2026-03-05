@@ -105,34 +105,40 @@ export async function POST(request: Request) {
         });
 
         // ── Step 2: 抽出AI（非ストリーミング）──
-        // 未完了の項目がある場合のみ実行
+        // 未完了の項目がある場合のみ実行。
+        // レート制限等で失敗しても会話は止めない（次回のメッセージ時に再試行される）。
         const unansweredItems = items.filter(i => !i.isCompleted);
         const updatedItemIds: string[] = [];
 
         if (unansweredItems.length > 0) {
-          const fullHistory: AIMessage[] = [
-            ...conversationHistory,
-            { role: 'assistant', content: fullResponse },
-          ];
-          const { messages: extractMsgs, options: extractOpts } =
-            buildExtractionMessages(unansweredItems, fullHistory);
+          try {
+            const fullHistory: AIMessage[] = [
+              ...conversationHistory,
+              { role: 'assistant', content: fullResponse },
+            ];
+            const { messages: extractMsgs, options: extractOpts } =
+              buildExtractionMessages(unansweredItems, fullHistory);
 
-          const extractionRaw = await ai.chat(extractMsgs, extractOpts);
-          const extraction = parseExtractionResult(extractionRaw);
+            const extractionRaw = await ai.chat(extractMsgs, extractOpts);
+            const extraction = parseExtractionResult(extractionRaw);
 
-          if (extraction) {
-            for (const result of extraction.items) {
-              if (!result.answered) continue;
-              await db
-                .update(checklistItems)
-                .set({
-                  isCompleted: true,
-                  answer: result.summary,
-                  updatedAt: new Date(),
-                })
-                .where(eq(checklistItems.id, result.id));
-              updatedItemIds.push(result.id);
+            if (extraction) {
+              for (const result of extraction.items) {
+                if (!result.answered) continue;
+                await db
+                  .update(checklistItems)
+                  .set({
+                    isCompleted: true,
+                    answer: result.summary,
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(checklistItems.id, result.id));
+                updatedItemIds.push(result.id);
+              }
             }
+          } catch (extractErr) {
+            // 抽出失敗はサーバーログのみ。会話の応答には影響しない。
+            console.warn('[extraction] skipped:', String(extractErr));
           }
         }
 
