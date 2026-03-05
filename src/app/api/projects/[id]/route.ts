@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { projects, checklistItems, outputs } from '@/lib/db/schema';
+import { projects, checklistItems, conversations, messages, outputs, projectSnsAuth } from '@/lib/db/schema';
 import { initDb } from '@/lib/db/init';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, inArray } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,6 +77,24 @@ export async function DELETE(
     return NextResponse.json({ error: 'プロジェクトが見つかりません' }, { status: 404 });
   }
 
+  // 外部キー制約に従い、依存順に削除する
+  // 1. messagesはconversationsを参照
+  const convRows = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.projectId, id));
+  if (convRows.length) {
+    const convIds = convRows.map(c => c.id);
+    await db.delete(messages).where(inArray(messages.conversationId, convIds));
+  }
+  await db.delete(conversations).where(eq(conversations.projectId, id));
+
+  // 2. outputs, project_sns_auth, checklist_items はprojectを参照
+  await db.delete(outputs).where(eq(outputs.projectId, id));
+  await db.delete(projectSnsAuth).where(eq(projectSnsAuth.projectId, id));
+  await db.delete(checklistItems).where(eq(checklistItems.projectId, id));
+
+  // 3. 最後にproject本体を削除
   await db.delete(projects).where(eq(projects.id, id));
   return NextResponse.json({ success: true });
 }
