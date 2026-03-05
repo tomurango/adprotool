@@ -34,6 +34,14 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!confirm(`「${project?.name}」を削除しますか？\nチェックシートとアウトプットもすべて削除されます。`)) return;
+    setDeleting(true);
+    await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    router.push('/');
+  }
 
   useEffect(() => {
     fetch(`/api/projects/${id}`)
@@ -60,12 +68,19 @@ export default function ProjectDetailPage() {
     <main className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-8">
         {/* ヘッダー */}
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center justify-between mb-6">
           <button
             onClick={() => router.push('/')}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-400 hover:text-gray-600 text-sm"
           >
             ← 一覧
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-red-400 hover:text-red-600 text-sm hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+          >
+            {deleting ? '削除中...' : 'プロジェクトを削除'}
           </button>
         </div>
 
