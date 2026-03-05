@@ -5,10 +5,8 @@ export class ClaudeProvider implements AIProvider {
   private client: Anthropic;
   private model: string;
 
-  constructor(config: { model: string }) {
-    const apiKey = process.env.CLAUDE_API_KEY;
-    if (!apiKey) throw new Error('CLAUDE_API_KEY is not set');
-    this.client = new Anthropic({ apiKey });
+  constructor(config: { model: string; apiKey: string }) {
+    this.client = new Anthropic({ apiKey: config.apiKey });
     this.model = config.model;
   }
 

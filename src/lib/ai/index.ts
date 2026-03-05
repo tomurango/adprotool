@@ -2,27 +2,35 @@ import { aiConfig } from '../../../ai.config';
 import { GeminiProvider } from './providers/gemini';
 import { ClaudeProvider } from './providers/claude';
 import { OpenAIProvider } from './providers/openai';
-import type { AIProvider } from './types';
+import { resolveApiKey } from '../user-settings';
+import type { AIProvider, AIMessage, ChatOptions } from './types';
 
-function createAIProvider(): AIProvider {
-  switch (aiConfig.defaultProvider) {
-    case 'gemini': return new GeminiProvider(aiConfig.providers.gemini);
-    case 'claude': return new ClaudeProvider(aiConfig.providers.claude);
-    case 'openai': return new OpenAIProvider(aiConfig.providers.openai);
-    default: return new GeminiProvider(aiConfig.providers.gemini);
+async function createAIProvider(): Promise<AIProvider> {
+  // DBの設定を優先し、なければai.config.tsのデフォルトを使用
+  const provider = aiConfig.defaultProvider;
+  const apiKey = await resolveApiKey(provider);
+
+  switch (provider) {
+    case 'gemini':
+      return new GeminiProvider({ ...aiConfig.providers.gemini, apiKey });
+    case 'claude':
+      return new ClaudeProvider({ ...aiConfig.providers.claude, apiKey });
+    case 'openai':
+      return new OpenAIProvider({ ...aiConfig.providers.openai, apiKey });
+    default:
+      return new GeminiProvider({ ...aiConfig.providers.gemini, apiKey });
   }
 }
 
-// 遅延初期化: リクエスト時まで実際のインスタンス化を遅らせる
-let _ai: AIProvider | null = null;
+// リクエストごとにプロバイダーを生成（キーをDBから動的取得するため）
 export const ai: AIProvider = {
-  chat: (...args) => {
-    if (!_ai) _ai = createAIProvider();
-    return _ai.chat(...args);
+  async chat(messages: AIMessage[], options?: ChatOptions): Promise<string> {
+    const provider = await createAIProvider();
+    return provider.chat(messages, options);
   },
-  stream: (...args) => {
-    if (!_ai) _ai = createAIProvider();
-    return _ai.stream(...args);
+  async *stream(messages: AIMessage[], options?: ChatOptions): AsyncGenerator<string> {
+    const provider = await createAIProvider();
+    yield* provider.stream(messages, options);
   },
 };
 

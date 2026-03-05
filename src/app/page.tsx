@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ProjectCard } from '@/components/ProjectCard';
 import { NewProjectModal } from '@/components/NewProjectModal';
 
@@ -41,12 +42,20 @@ export default function Home() {
             <h1 className="text-2xl font-bold text-gray-900">こうこくーる</h1>
             <p className="text-sm text-gray-500 mt-1">発信伴走AI</p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
-          >
-            + 新規プロジェクト
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/settings"
+              className="text-gray-400 hover:text-gray-600 px-3 py-2 rounded-lg text-sm hover:bg-gray-100 transition-colors"
+            >
+              設定
+            </Link>
+            <button
+              onClick={() => setShowModal(true)}
+              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+            >
+              + 新規プロジェクト
+            </button>
+          </div>
         </div>
 
         {loading ? (

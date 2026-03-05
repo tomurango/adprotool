@@ -11,8 +11,8 @@ out/
 .env.*.local
 .env.production
 
-# SQLite データファイル (ローカルデータ)
-db/
+# SQLite データファイル (ローカルデータ) - ルート直下のdb/ディレクトリのみ
+/db/
 
 # TypeScript build cache
 tsconfig.tsbuildinfo

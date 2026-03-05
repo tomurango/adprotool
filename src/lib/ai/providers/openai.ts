@@ -5,10 +5,8 @@ export class OpenAIProvider implements AIProvider {
   private client: OpenAI;
   private model: string;
 
-  constructor(config: { model: string }) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
-    this.client = new OpenAI({ apiKey });
+  constructor(config: { model: string; apiKey: string }) {
+    this.client = new OpenAI({ apiKey: config.apiKey });
     this.model = config.model;
   }
 
