@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -34,15 +34,20 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [deleting, setDeleting] = useState(false);
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
 
-  async function handleDelete() {
-    if (!confirm(`「${project?.name}」を削除しますか？\nチェックシートとアウトプットもすべて削除されます。`)) return;
-    setDeleting(true);
-    await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-    router.push('/');
-  }
+  // ⋮ メニュー
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // 編集
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // 削除
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -54,6 +59,46 @@ export default function ProjectDetailPage() {
       setLoading(false);
     });
   }, [id]);
+
+  // メニュー外クリックで閉じる
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function openEdit() {
+    setEditName(project?.name ?? '');
+    setEditDescription(project?.description ?? '');
+    setEditing(true);
+    setMenuOpen(false);
+  }
+
+  async function handleSave() {
+    if (!editName.trim()) return;
+    setSaving(true);
+    const res = await fetch(`/api/projects/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editName, description: editDescription }),
+    });
+    const updated = await res.json();
+    setProject(prev => prev ? { ...prev, name: updated.name, description: updated.description } : prev);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  async function handleDelete() {
+    setMenuOpen(false);
+    if (!confirm(`「${project?.name}」を削除しますか？\nチェックシートとアウトプットもすべて削除されます。`)) return;
+    setDeleting(true);
+    await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    router.push('/');
+  }
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-gray-400">読み込み中...</div>;
@@ -78,13 +123,35 @@ export default function ProjectDetailPage() {
           >
             ← 一覧
           </button>
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className="text-red-400 hover:text-red-600 text-sm hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
-          >
-            {deleting ? '削除中...' : 'プロジェクトを削除'}
-          </button>
+
+          {/* ⋮ メニュー */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen(o => !o)}
+              disabled={deleting}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
+              aria-label="メニュー"
+            >
+              <span className="text-lg leading-none">⋮</span>
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-10 w-36 bg-white border border-gray-200 rounded-xl shadow-lg py-1 z-10">
+                <button
+                  onClick={openEdit}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  編集
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  削除
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-4">
@@ -192,6 +259,52 @@ export default function ProjectDetailPage() {
           </a>
         </div>
       </div>
+
+      {/* 編集モーダル */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">プロジェクトを編集</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  プロジェクト名 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">説明</label>
+                <textarea
+                  value={editDescription}
+                  onChange={e => setEditDescription(e.target.value)}
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => setEditing(false)}
+                className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || !editName.trim()}
+                className="flex-1 bg-indigo-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {saving ? '保存中...' : '保存する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
