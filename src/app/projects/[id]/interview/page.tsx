@@ -84,60 +84,73 @@ export default function InterviewPage() {
     let assistantContent = '';
     setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
-    const res = await fetch('/api/ai/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectId: id,
-        conversationId,
-        checklistItemId: currentItemId,
-        userMessage: userText,
-      }),
-    });
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: id,
+          conversationId,
+          checklistItemId: currentItemId,
+          userMessage: userText,
+        }),
+      });
 
-    const reader = res.body?.getReader();
-    const decoder = new TextDecoder();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTPエラー ${res.status}` }));
+        throw new Error(err.error ?? `HTTPエラー ${res.status}`);
+      }
 
-    if (!reader) {
-      setStreaming(false);
-      return;
-    }
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      if (!reader) throw new Error('ストリームを取得できませんでした');
 
-      const text = decoder.decode(value);
-      const lines = text.split('\n').filter(l => l.startsWith('data: '));
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      for (const line of lines) {
-        const json = JSON.parse(line.slice(6));
-        if (json.chunk) {
-          assistantContent += json.chunk;
-          setMessages(prev => {
-            const next = [...prev];
-            next[next.length - 1] = { role: 'assistant', content: assistantContent };
-            return next;
-          });
-        }
-        if (json.done) {
-          setConversationId(json.conversationId);
-          if (json.checkComplete) {
-            // チェックシートを更新
-            setItems(prev =>
-              prev.map(item =>
-                item.id === currentItemId ? { ...item, isCompleted: true } : item
-              )
-            );
-            // 次の未完了項目へ
-            const nextItem = items.find(i => !i.isCompleted && i.id !== currentItemId);
-            if (nextItem) setCurrentItemId(nextItem.id);
+        const text = decoder.decode(value);
+        const lines = text.split('\n').filter(l => l.startsWith('data: '));
+
+        for (const line of lines) {
+          const json = JSON.parse(line.slice(6));
+          if (json.error) throw new Error(json.error);
+          if (json.chunk) {
+            assistantContent += json.chunk;
+            setMessages(prev => {
+              const next = [...prev];
+              next[next.length - 1] = { role: 'assistant', content: assistantContent };
+              return next;
+            });
+          }
+          if (json.done) {
+            setConversationId(json.conversationId);
+            if (json.checkComplete) {
+              setItems(prev =>
+                prev.map(item =>
+                  item.id === currentItemId ? { ...item, isCompleted: true } : item
+                )
+              );
+              const nextItem = items.find(i => !i.isCompleted && i.id !== currentItemId);
+              if (nextItem) setCurrentItemId(nextItem.id);
+            }
           }
         }
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setMessages(prev => {
+        const next = [...prev];
+        next[next.length - 1] = {
+          role: 'assistant',
+          content: `⚠️ エラーが発生しました。\n\n${message}`,
+        };
+        return next;
+      });
+    } finally {
+      setStreaming(false);
     }
-
-    setStreaming(false);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
