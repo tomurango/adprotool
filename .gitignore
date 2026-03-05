@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment variables (APIキー等の秘匿情報)
+.env
+.env.local
+.env.*.local
+.env.production
+
+# SQLite データファイル (ローカルデータ)
+db/
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Drizzle generated migrations (スキーマから再生成可能)
+src/lib/db/migrations/
