@@ -9,12 +9,12 @@ const AI_PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
 ] as const;
 
-type Provider = typeof AI_PROVIDERS[number]['value'];
 
 interface FormState {
   gemini_api_key: string;
   claude_api_key: string;
   openai_api_key: string;
+  ai_provider: string;
 }
 
 export default function SettingsPage() {
@@ -23,6 +23,7 @@ export default function SettingsPage() {
     gemini_api_key: '',
     claude_api_key: '',
     openai_api_key: '',
+    ai_provider: '',
   });
   const [savedMask, setSavedMask] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -31,7 +32,12 @@ export default function SettingsPage() {
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.json())
-      .then(data => setSavedMask(data));
+      .then(data => {
+        setSavedMask(data);
+        if (data.ai_provider) {
+          setForm(prev => ({ ...prev, ai_provider: data.ai_provider }));
+        }
+      });
   }, []);
 
   function handleChange(key: keyof FormState, value: string) {
@@ -43,10 +49,14 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
 
-    // 空欄のキーは送信しない（既存の値を消さないため）
+    // 空欄のAPIキーは送信しない（既存の値を消さないため）。プロバイダーは常に送信。
     const payload: Partial<FormState> = {};
     for (const [k, v] of Object.entries(form)) {
-      if (v.trim()) payload[k as keyof FormState] = v.trim();
+      if (k === 'ai_provider') {
+        if (v) payload.ai_provider = v;
+      } else if (v.trim()) {
+        payload[k as keyof FormState] = v.trim();
+      }
     }
 
     await fetch('/api/settings', {
@@ -58,26 +68,29 @@ export default function SettingsPage() {
     // 保存後、マスク表示を更新
     const updated = await fetch('/api/settings').then(r => r.json());
     setSavedMask(updated);
-    setForm({ gemini_api_key: '', claude_api_key: '', openai_api_key: '' });
+    setForm(prev => ({ gemini_api_key: '', claude_api_key: '', openai_api_key: '', ai_provider: prev.ai_provider }));
     setSaving(false);
     setSaved(true);
   }
 
-  const keyFields: { key: keyof FormState; label: string; hint: string }[] = [
+  const keyFields: { key: keyof FormState; label: string; hint: string; billing: string }[] = [
     {
       key: 'gemini_api_key',
       label: 'Gemini API Key',
       hint: 'Google AI Studio から取得',
+      billing: '無料枠あり。ただし Google Cloud の請求先情報（クレジットカード）の登録が必要です。',
     },
     {
       key: 'claude_api_key',
       label: 'Claude API Key',
       hint: 'Anthropic Console から取得',
+      billing: 'Anthropic Console でクレジットを購入（プリペイド）してから利用できます。',
     },
     {
       key: 'openai_api_key',
       label: 'OpenAI API Key',
       hint: 'OpenAI Platform から取得',
+      billing: 'OpenAI Platform でクレジットを追加（プリペイド）してから利用できます。',
     },
   ];
 
@@ -100,12 +113,28 @@ export default function SettingsPage() {
             <h2 className="font-semibold text-gray-900 mb-1">AIプロバイダー</h2>
             <p className="text-xs text-gray-400 mb-4">
               使用するAIを選択し、対応するAPIキーを入力してください。
-              変更後は <code className="bg-gray-100 px-1 rounded">ai.config.ts</code> の{' '}
-              <code className="bg-gray-100 px-1 rounded">defaultProvider</code> も合わせて変更してください。
             </p>
 
+            {/* プロバイダー選択 */}
+            <div className="flex gap-2 mb-6">
+              {AI_PROVIDERS.map(p => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setForm(prev => ({ ...prev, ai_provider: p.value }))}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    form.ai_provider === p.value
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
             <div className="space-y-4">
-              {keyFields.map(({ key, label, hint }) => (
+              {keyFields.map(({ key, label, hint, billing }) => (
                 <div key={key}>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {label}
@@ -124,6 +153,7 @@ export default function SettingsPage() {
                     autoComplete="off"
                   />
                   <p className="text-xs text-gray-400 mt-1">{hint}</p>
+                  <p className="text-xs text-amber-600 mt-0.5">{billing}</p>
                 </div>
               ))}
             </div>

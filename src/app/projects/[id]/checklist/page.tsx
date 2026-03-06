@@ -18,7 +18,9 @@ export default function ChecklistPage() {
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [projectName, setProjectName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -30,6 +32,47 @@ export default function ChecklistPage() {
       setLoading(false);
     });
   }, [id]);
+
+  function startEdit(item: ChecklistItem) {
+    setEditingId(item.id);
+    setEditText(item.answer ?? '');
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditText('');
+  }
+
+  async function saveEdit(item: ChecklistItem) {
+    setSaving(true);
+    const res = await fetch(`/api/projects/${id}/checklist/${item.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        answer: editText.trim(),
+        isCompleted: editText.trim().length > 0,
+      }),
+    });
+    const updated = await res.json();
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updated } : i));
+    setEditingId(null);
+    setEditText('');
+    setSaving(false);
+  }
+
+  async function toggleComplete(item: ChecklistItem) {
+    const willComplete = !item.isCompleted;
+    const res = await fetch(`/api/projects/${id}/checklist/${item.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        isCompleted: willComplete,
+        // 未完了に戻す場合は回答を消さない
+      }),
+    });
+    const updated = await res.json();
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updated } : i));
+  }
 
   const completed = items.filter(i => i.isCompleted).length;
   const total = items.length;
@@ -61,30 +104,70 @@ export default function ChecklistPage() {
         <div className="space-y-3 mb-6">
           {items.map(item => (
             <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center gap-3 p-4">
-                <span className="text-xl shrink-0">{item.isCompleted ? '✅' : '⬜'}</span>
-                <p className="text-sm font-medium text-gray-800 flex-1">{item.question}</p>
-                {item.isCompleted ? (
-                  <button
-                    onClick={() => setExpandedItem(expandedItem === item.id ? null : item.id)}
-                    className="text-xs text-indigo-600 shrink-0 hover:underline"
-                  >
-                    {expandedItem === item.id ? '閉じる' : '回答を見る'}
-                  </button>
-                ) : (
-                  <Link
-                    href={`/projects/${id}/interview?itemId=${item.id}`}
-                    className="text-xs text-indigo-600 shrink-0 hover:underline whitespace-nowrap"
-                  >
-                    話してみる →
-                  </Link>
-                )}
+              {/* ヘッダー行 */}
+              <div className="flex items-start gap-3 p-4">
+                <button
+                  onClick={() => toggleComplete(item)}
+                  className="text-xl shrink-0 mt-0.5 hover:opacity-70 transition-opacity"
+                  title={item.isCompleted ? '未完了に戻す' : '完了にする'}
+                >
+                  {item.isCompleted ? '✅' : '⬜'}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800">{item.question}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {editingId !== item.id && (
+                    <button
+                      onClick={() => startEdit(item)}
+                      className="text-xs text-indigo-600 hover:underline"
+                    >
+                      {item.answer ? '編集' : '記入する'}
+                    </button>
+                  )}
+                  {!item.isCompleted && editingId !== item.id && (
+                    <Link
+                      href={`/projects/${id}/interview?itemId=${item.id}`}
+                      className="text-xs text-gray-400 hover:text-indigo-600 hover:underline whitespace-nowrap"
+                    >
+                      AIに話す →
+                    </Link>
+                  )}
+                </div>
               </div>
-              {expandedItem === item.id && item.answer && (
+
+              {/* 回答表示 / 編集エリア */}
+              {editingId === item.id ? (
+                <div className="border-t border-gray-100 px-4 pb-4 pt-3">
+                  <textarea
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    placeholder="回答を入力してください..."
+                    rows={4}
+                    autoFocus
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => saveEdit(item)}
+                      disabled={saving}
+                      className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {saving ? '保存中...' : '保存'}
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="text-gray-400 px-4 py-1.5 rounded-lg text-xs hover:text-gray-600"
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                </div>
+              ) : item.answer ? (
                 <div className="border-t border-gray-100 px-4 pb-4 pt-3">
                   <p className="text-sm text-gray-600 whitespace-pre-wrap">{item.answer}</p>
                 </div>
-              )}
+              ) : null}
             </div>
           ))}
         </div>

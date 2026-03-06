@@ -2,7 +2,7 @@ export const aiConfig = {
   defaultProvider: 'gemini' as 'gemini' | 'claude' | 'openai',
   providers: {
     gemini: {
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
     },
     claude: {
       model: 'claude-sonnet-4-6',

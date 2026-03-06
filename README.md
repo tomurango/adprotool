@@ -45,6 +45,12 @@ http://localhost:3000
 
 デフォルトは Gemini。変更する場合は `ai.config.ts` の `defaultProvider` を編集する。
 
+> **APIキー利用に関する注意**
+>
+> - **Gemini**: 無料枠あり。ただし Google Cloud の**請求先情報（クレジットカード）の登録**が必要。登録しないと API 呼び出しがエラーになる。
+> - **Claude**: Anthropic Console で**クレジットを購入**（プリペイド方式）してから利用できる。
+> - **OpenAI**: OpenAI Platform で**クレジットを追加**（プリペイド方式）してから利用できる。
+
 ---
 
 ## 環境変数（任意）

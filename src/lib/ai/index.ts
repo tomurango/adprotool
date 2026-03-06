@@ -2,12 +2,13 @@ import { aiConfig } from '../../../ai.config';
 import { GeminiProvider } from './providers/gemini';
 import { ClaudeProvider } from './providers/claude';
 import { OpenAIProvider } from './providers/openai';
-import { resolveApiKey } from '../user-settings';
+import { resolveApiKey, getSetting } from '../user-settings';
 import type { AIProvider, AIMessage, ChatOptions } from './types';
 
 async function createAIProvider(): Promise<AIProvider> {
   // DBの設定を優先し、なければai.config.tsのデフォルトを使用
-  const provider = aiConfig.defaultProvider;
+  const dbProvider = await getSetting('ai_provider');
+  const provider = (dbProvider as typeof aiConfig.defaultProvider) ?? aiConfig.defaultProvider;
   const apiKey = await resolveApiKey(provider);
 
   switch (provider) {
@@ -36,8 +37,8 @@ export const ai: AIProvider = {
 
 // アプリ内でのAI使用はすべてここ経由
 export { buildInterviewMessages } from './prompts/interview';
-export { buildExtractionMessages, parseExtractionResult } from './prompts/extraction';
+export { buildDirectorMessages, parseDirectorResult } from './prompts/extraction';
 export { buildSNSPostPrompt } from './prompts/sns-post';
 export { buildVideoScriptPrompt } from './prompts/video-script';
 export type { AIProvider, AIMessage, ChatOptions } from './types';
-export type { ExtractionResult } from './prompts/extraction';
+export type { DirectorResult } from './prompts/extraction';

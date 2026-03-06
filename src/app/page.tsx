@@ -41,7 +41,7 @@ const STEPS = [
   },
 ];
 
-function OnboardingGuide({ onStart }: { onStart: () => void }) {
+function OnboardingGuide({ onStart, apiKeyConfigured }: { onStart: () => void; apiKeyConfigured: boolean }) {
   return (
     <div className="max-w-xl mx-auto">
       {/* ウェルカムメッセージ */}
@@ -77,14 +77,16 @@ function OnboardingGuide({ onStart }: { onStart: () => void }) {
         </div>
       </div>
 
-      {/* 事前準備メモ */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-xs text-amber-700">
-        <p className="font-semibold mb-1">はじめる前に</p>
-        <p>
-          AIを使うにはAPIキーが必要です。
-          まず右上の「設定」からGemini・Claude・OpenAIいずれかのAPIキーを登録してください。
-        </p>
-      </div>
+      {/* 事前準備メモ: APIキー未設定時のみ表示 */}
+      {!apiKeyConfigured && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-xs text-amber-700">
+          <p className="font-semibold mb-1">はじめる前に</p>
+          <p>
+            AIを使うにはAPIキーが必要です。
+            まず右上の「設定」からGemini・Claude・OpenAIいずれかのAPIキーを登録してください。
+          </p>
+        </div>
+      )}
 
       <button
         onClick={onStart}
@@ -101,14 +103,17 @@ export default function Home() {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(true);
 
   useEffect(() => {
-    fetch('/api/projects')
-      .then(r => r.json())
-      .then(data => {
-        setProjects(data);
-        setLoading(false);
-      });
+    Promise.all([
+      fetch('/api/projects').then(r => r.json()),
+      fetch('/api/settings/status').then(r => r.json()),
+    ]).then(([data, status]) => {
+      setProjects(data);
+      setApiKeyConfigured(status.configured);
+      setLoading(false);
+    });
   }, []);
 
   function handleCreated(project: { id: string }) {
@@ -146,7 +151,7 @@ export default function Home() {
         {loading ? (
           <div className="text-center py-20 text-gray-400">読み込み中...</div>
         ) : projects.length === 0 ? (
-          <OnboardingGuide onStart={() => setShowModal(true)} />
+          <OnboardingGuide onStart={() => setShowModal(true)} apiKeyConfigured={apiKeyConfigured} />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {projects.map(p => (
