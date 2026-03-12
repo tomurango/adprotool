@@ -12,13 +12,19 @@ const DIRECTOR_SYSTEM_PROMPT = `あなたは会話インタビューのディレ
 export interface DirectorResult {
   extracted: {
     id: string;
-    answered: boolean;   // true = 十分な情報が揃った（DBに保存）
+    answered: boolean;       // true = 十分な情報が揃った（DBに保存）
     gathered: string | null; // 会話から読み取れた内容（部分的でも記録）
     missing: string | null;  // まだ足りていない情報（answered: true なら null）
+    proposed: string | null; // 会話から推測した回答案（ユーザー未確認）
   }[];
   directive: {
     focus: string;
     approach: string;
+    confirmations: {         // 会話AIがユーザーに確認を取るべき推測
+      itemId: string;
+      question: string;      // チェック項目の質問文
+      proposed: string;      // 推測した回答
+    }[];
   } | null;
 }
 
@@ -58,11 +64,11 @@ ${conversation}
 各項目について以下を判定してください:
 
 answered の判定基準（厳格に）:
-- 質問の核心について、具体的なエピソード・事実・気持ちが十分に語られていれば true
-- 触れてはいるが浅い・曖昧・一言程度の場合は false
+- 質問の核心について具体的なエピソード・事実・気持ちが十分に語られ、かつユーザーが確認・同意した内容であれば true
+- 推測や部分的な言及のみの場合は false
 - 完全に話題に触れていない場合も false
 
-gathered（必ず記入）:
+gathered（会話で少しでも触れた場合に記入）:
 - 会話から読み取れた内容を簡潔に書く（answered が false でも書く）
 - 会話でまだ触れていない場合は null
 
@@ -70,19 +76,32 @@ missing（answered: false の場合のみ記入）:
 - 質問に答えるためにまだ足りていない情報・エピソード・視点を具体的に書く
 - answered: true の場合は null
 
+proposed（gathered がある場合に記入）:
+- gathered の内容をもとに「おそらくこういうことだろう」という推測回答を一文で書く
+- ユーザーに確認を取れば answered にできそうな内容を推測する
+- gathered が null の場合は null
+
 【タスク2: 次ターンへの指示】
 ${directiveInstruction}
+
+confirmations について:
+- proposed がある未回答項目のうち、確認を取れば answered にできそうなものを最大2件選ぶ
+- 確認済み・answered: true の項目は含めない
+- proposed がない項目は含めない
 
 【出力形式（このJSONのみを返すこと）】
 {
   "extracted": [
-    { "id": "質問のid", "answered": true, "gathered": "読み取れた内容（一行）", "missing": null },
-    { "id": "質問のid", "answered": false, "gathered": "部分的に読み取れた内容（一行）", "missing": "まだ足りていない情報（一行）" },
-    { "id": "質問のid", "answered": false, "gathered": null, "missing": "まだ何も触れていないため全般的な情報が必要" }
+    { "id": "質問のid", "answered": true, "gathered": "確認済みの内容（一行）", "missing": null, "proposed": null },
+    { "id": "質問のid", "answered": false, "gathered": "部分的に読み取れた内容（一行）", "missing": "まだ足りていない情報（一行）", "proposed": "推測回答（一行）" },
+    { "id": "質問のid", "answered": false, "gathered": null, "missing": "まだ何も触れていない", "proposed": null }
   ],
   "directive": {
     "focus": "次に深掘りすべきテーマ（一行）",
-    "approach": "具体的なアプローチ方法（一行）"
+    "approach": "具体的なアプローチ方法（一行）",
+    "confirmations": [
+      { "itemId": "質問のid", "question": "チェック項目の質問文（一行）", "proposed": "推測した回答（一行）" }
+    ]
   }
 }
 

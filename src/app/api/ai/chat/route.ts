@@ -1,13 +1,15 @@
 import { db } from '@/lib/db';
-import { projects, checklistItems, conversations, messages } from '@/lib/db/schema';
+import { projects, checklistItems, conversations, messages, checklistItemHistory } from '@/lib/db/schema';
 import { initDb } from '@/lib/db/init';
 import {
   ai,
   buildInterviewMessages,
-  buildDirectorMessages,
-  parseDirectorResult,
+  buildEvaluatorMessages,
+  parseEvaluatorResult,
+  buildPlannerMessages,
+  parsePlannerResult,
 } from '@/lib/ai';
-import type { AIMessage } from '@/lib/ai';
+import type { AIMessage, EvaluatorResult } from '@/lib/ai';
 import type { Directive } from '@/lib/ai/prompts/interview';
 import { nanoid } from 'nanoid';
 import { eq, asc } from 'drizzle-orm';
@@ -71,9 +73,16 @@ export async function POST(request: Request) {
     });
   }
 
+  // チェックシートブロックを除去（過去の会話に混入した場合の対策）
+  function sanitizeContent(content: string): string {
+    return content
+      .replace(/【チェックシートの状況】[\s\S]*?(?=\n\n|\n(?=[^\n])|$)/g, '')
+      .trim();
+  }
+
   // 会話履歴（現在のユーザーメッセージを含む）
   const conversationHistory: AIMessage[] = [
-    ...history.map(m => ({ role: m.role, content: m.content })),
+    ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: sanitizeContent(m.content) })),
     { role: 'user', content: userMessage },
   ];
 
@@ -84,51 +93,102 @@ export async function POST(request: Request) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 
       try {
-        // ── Step 1: ディレクターAI（先行実行）──
-        // 現在の会話を分析して回答を抽出し、会話AIへの指示を生成する。
-        const updatedItemIds: string[] = [];
+        // ── Step 1: 評価AI + 計画AI（先行実行）──
+        const updatedItems: { id: string; answer: string | null }[] = [];
         let nextDirective: Directive | null = null;
-        let insights: { id: string; gathered: string | null; missing: string | null }[] = [];
+        let insights: { id: string; score: number; summary: string | null; missing: string | null }[] = [];
 
         try {
-          const { messages: directorMsgs, options: directorOpts } =
-            buildDirectorMessages(items, conversationHistory);
+          // Step 1a: 評価AI（スコアリング）
+          const { messages: evalMsgs, options: evalOpts } =
+            buildEvaluatorMessages(items, conversationHistory);
+          const evalRaw = await ai.chat(evalMsgs, evalOpts);
+          console.log('[evaluator] raw:', evalRaw.slice(0, 300));
+          const evalResult: EvaluatorResult | null = parseEvaluatorResult(evalRaw);
+          console.log('[evaluator] parsed:', evalResult ? 'ok' : 'null');
 
-          const directorRaw = await ai.chat(directorMsgs, directorOpts);
-          const directorResult = parseDirectorResult(directorRaw);
+          if (evalResult) {
+            for (const e of evalResult.items) {
+              const item = items.find(i => i.id === e.id);
+              if (!item) continue;
 
-          if (directorResult) {
-            // 十分な回答が得られた項目のみDB更新
-            for (const result of directorResult.extracted) {
-              if (!result.answered) continue;
-              const item = items.find(i => i.id === result.id);
-              if (!item || !!item.isCompleted) continue;
-              await db
-                .update(checklistItems)
-                .set({
-                  isCompleted: true,
-                  answer: result.gathered,
-                  updatedAt: new Date(),
-                })
-                .where(eq(checklistItems.id, result.id));
-              updatedItemIds.push(result.id);
+              if (!item.isCompleted && e.score === 3) {
+                // 未完了 → 新規完了
+                await db
+                  .update(checklistItems)
+                  .set({ isCompleted: true, answer: e.summary, updatedAt: new Date() })
+                  .where(eq(checklistItems.id, e.id));
+                await db.insert(checklistItemHistory).values({
+                  id: nanoid(),
+                  checklistItemId: e.id,
+                  answer: e.summary,
+                  source: 'ai',
+                  reasoning: '会話から十分な情報が得られた',
+                  createdAt: new Date(),
+                });
+                updatedItems.push({ id: e.id, answer: e.summary });
+              } else if (!!item.isCompleted && e.shouldUpdate && e.summary) {
+                // 完了済み → 新情報で上書き（旧answerを履歴に保存）
+                await db.insert(checklistItemHistory).values({
+                  id: nanoid(),
+                  checklistItemId: e.id,
+                  answer: item.answer,
+                  source: 'ai',
+                  reasoning: e.reasoning ?? null,
+                  createdAt: new Date(),
+                });
+                await db
+                  .update(checklistItems)
+                  .set({ answer: e.summary, updatedAt: new Date() })
+                  .where(eq(checklistItems.id, e.id));
+                updatedItems.push({ id: e.id, answer: e.summary });
+              }
             }
 
-            nextDirective = directorResult.directive ?? null;
-            insights = directorResult.extracted.map(e => ({
+            // インサイト（全未完了項目のスコア・サマリー）
+            insights = evalResult.items.map(e => ({
               id: e.id,
-              gathered: e.gathered,
-              missing: e.missing,
+              score: e.score,
+              summary: e.summary,
+              missing: e.missing ?? null,
             }));
+
+            // Step 1b: 計画AI（ディレクティブ生成）
+            const recentMessages = conversationHistory.slice(-6);
+            const { messages: planMsgs, options: planOpts } =
+              buildPlannerMessages(items, evalResult, recentMessages);
+            const planRaw = await ai.chat(planMsgs, planOpts);
+            console.log('[planner] raw:', planRaw.slice(0, 300));
+            const planResult = parsePlannerResult(planRaw);
+            console.log('[planner] parsed:', planResult ? 'ok' : 'null');
+
+            if (planResult?.directive) {
+              const focusItem = items.find(i => i.id === planResult.directive!.focusItemId);
+              nextDirective = {
+                ...planResult.directive,
+                focusQuestion: focusItem?.question ?? undefined,
+              };
+            } else {
+              // parse 失敗時: スコアが最も低い未完了項目をフォールバックとして使用
+              const lowestScored = evalResult.items
+                .filter(e => e.score < 3)
+                .sort((a, b) => a.score - b.score)[0];
+              const fallbackItem = lowestScored
+                ? items.find(i => i.id === lowestScored.id && !i.isCompleted)
+                : null;
+              nextDirective = fallbackItem
+                ? { focusItemId: fallbackItem.id, focusQuestion: fallbackItem.question, approach: '自然な会話の流れで深掘りしてください', confirmations: [] }
+                : null;
+            }
           }
         } catch (directorErr) {
-          console.warn('[director] skipped:', String(directorErr));
+          console.warn('[evaluator/planner] skipped:', String(directorErr));
         }
 
-        // ディレクターの分析結果をクライアントへ先送り（サイドバー更新）
+        // 評価・計画結果をクライアントへ先送り（サイドバー更新）
         send({
           director: true,
-          updatedItemIds,
+          updatedItems,
           directive: nextDirective,
           insights,
         });

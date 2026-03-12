@@ -29,6 +29,14 @@ export default function OutputsPage() {
   const [genFormat, setGenFormat] = useState<OutputFormat>('plain_script');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  async function copyContent(outputId: string, content: string) {
+    await navigator.clipboard.writeText(content);
+    setCopiedId(outputId);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
 
   useEffect(() => {
     loadData();
@@ -182,7 +190,21 @@ export default function OutputsPage() {
                     {o.type === 'sns_post' ? 'SNS投稿' : '動画スクリプト'}
                   </span>
                   {o.platform && <span className="text-xs text-gray-400">{o.platform}</span>}
-                  {o.format && <span className="text-xs text-gray-400">{o.format}</span>}
+                  {o.format && (
+                    o.format === 'runway_script' || o.format === 'runway_script_short' ? (
+                      <a href="https://runwayml.com" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline">
+                        {o.format === 'runway_script_short' ? 'Runway用（無料版）↗' : 'Runway用スクリプト ↗'}
+                      </a>
+                    ) : o.format === 'mootion_script' ? (
+                      <a href="https://storyteller.mootion.com/" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline">
+                        Mootion Storyteller ↗
+                      </a>
+                    ) : (
+                      <span className="text-xs text-gray-400">
+                        {OUTPUT_FORMAT_LIST.find(f => f.format === o.format)?.label ?? o.format}
+                      </span>
+                    )
+                  )}
                   <span className={`text-xs ml-auto ${o.status === 'posted' ? 'text-green-600' : 'text-gray-400'}`}>
                     {o.status === 'posted' ? '投稿済み' : '下書き'}
                   </span>
@@ -213,8 +235,27 @@ export default function OutputsPage() {
                   </div>
                 ) : (
                   <>
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap mb-4">{o.content}</p>
+                    <div className={`text-sm text-gray-700 whitespace-pre-wrap mb-4 ${expandedId !== o.id && o.content.length > 600 ? 'max-h-48 overflow-hidden relative' : ''}`}>
+                      <p>{o.content}</p>
+                      {expandedId !== o.id && o.content.length > 600 && (
+                        <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent" />
+                      )}
+                    </div>
+                    {o.content.length > 600 && (
+                      <button
+                        onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}
+                        className="text-xs text-indigo-600 hover:underline mb-3 block"
+                      >
+                        {expandedId === o.id ? '折りたたむ' : 'すべて表示'}
+                      </button>
+                    )}
                     <div className="flex gap-2 flex-wrap">
+                      <button
+                        onClick={() => copyContent(o.id, o.content)}
+                        className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
+                      >
+                        {copiedId === o.id ? 'コピーしました' : 'コピー'}
+                      </button>
                       <button
                         onClick={() => { setEditingId(o.id); setEditContent(o.content); }}
                         className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"

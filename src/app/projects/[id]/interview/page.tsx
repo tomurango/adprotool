@@ -29,11 +29,15 @@ export default function InterviewPage() {
   const [projectName, setProjectName] = useState('');
   const [currentItemId, setCurrentItemId] = useState<string | null>(initialItemId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
+  const draftKey = `draft-${id}`;
+  const [input, setInput] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem(`draft-${id}`) ?? '';
+  });
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [directive, setDirective] = useState<{ focus: string; approach: string } | null>(null);
-  const [insights, setInsights] = useState<Record<string, { gathered: string | null; missing: string | null }>>({});
+  const [directive, setDirective] = useState<{ focusItemId: string; focusQuestion?: string; approach: string } | null>(null);
+  const [insights, setInsights] = useState<Record<string, { score: number; summary: string | null; missing: string | null }>>({});
   const [streaming, setStreaming] = useState(false);
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const [isComposing, setIsComposing] = useState(false);
@@ -51,6 +55,12 @@ export default function InterviewPage() {
       setApiKeyConfigured(status.configured);
       setProjectName(project.name);
       setItems(checklist);
+
+      // インサイトをローカルストレージから復元
+      try {
+        const saved = localStorage.getItem(`insights-${id}`);
+        if (saved) setInsights(JSON.parse(saved));
+      } catch { /* ignore */ }
 
       // 前回の会話履歴がある場合は復元
       if (history.messages?.length > 0) {
@@ -93,12 +103,22 @@ export default function InterviewPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // 復元した入力テキストに合わせてテキストエリアの高さを調整
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (el && input) {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, []);
+
   async function sendMessage(isRetry = false) {
     const userText = isRetry ? lastUserMessage : input.trim();
     if (!userText || streaming) return;
 
     if (!isRetry) {
       setInput('');
+      try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
       setLastUserMessage(userText);
       setMessages(prev => [...prev, { role: 'user', content: userText }]);
@@ -160,18 +180,18 @@ export default function InterviewPage() {
               setInsights(prev => {
                 const next = { ...prev };
                 for (const ins of json.insights) {
-                  next[ins.id] = { gathered: ins.gathered, missing: ins.missing };
+                  next[ins.id] = { score: ins.score, summary: ins.summary, missing: ins.missing ?? null };
                 }
+                try { localStorage.setItem(`insights-${id}`, JSON.stringify(next)); } catch { /* ignore */}
                 return next;
               });
             }
-            if (json.updatedItemIds?.length > 0) {
+            if (json.updatedItems?.length > 0) {
               setItems(prev =>
-                prev.map(item =>
-                  json.updatedItemIds.includes(item.id)
-                    ? { ...item, isCompleted: true }
-                    : item
-                )
+                prev.map(item => {
+                  const updated = json.updatedItems.find((u: { id: string; answer: string | null }) => u.id === item.id);
+                  return updated ? { ...item, isCompleted: true, answer: updated.answer } : item;
+                })
               );
             }
           }
@@ -293,7 +313,11 @@ export default function InterviewPage() {
           {directive && (
             <div className="border-b border-gray-100 p-4">
               <p className="text-xs font-semibold text-indigo-600 mb-1">今フォーカス中</p>
-              <p className="text-xs text-gray-700 font-medium mb-2">{directive.focus}</p>
+              <p className="text-xs text-gray-700 font-medium mb-2">
+                {directive.focusQuestion
+                  ?? items.find(i => i.id === directive.focusItemId)?.question
+                  ?? directive.focusItemId}
+              </p>
               <p className="text-xs text-gray-400 leading-relaxed">{directive.approach}</p>
             </div>
           )}
@@ -320,20 +344,43 @@ export default function InterviewPage() {
                       </div>
                     ) : ins ? (
                       <div className="ml-5 space-y-1">
-                        {ins.gathered && (
-                          <div className="bg-blue-50 border border-blue-100 rounded px-2 py-1">
-                            <p className="text-blue-600 font-medium mb-0.5">読み取れた内容</p>
-                            <p className="text-gray-600 leading-relaxed">{ins.gathered}</p>
+                        {ins.score === 0 && (
+                          <>
+                            <p className="text-gray-300 italic">まだ話題に触れていません</p>
+                            {ins.missing && <p className="text-gray-400 text-xs leading-relaxed">聞きたいこと: {ins.missing}</p>}
+                          </>
+                        )}
+                        {ins.score === 1 && (
+                          <div className="space-y-1">
+                            {ins.summary && (
+                              <div className="bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                                <p className="text-amber-600 font-medium mb-0.5">読み取れた内容</p>
+                                <p className="text-gray-600 leading-relaxed">{ins.summary}</p>
+                              </div>
+                            )}
+                            {ins.missing && (
+                              <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                                <p className="text-gray-500 font-medium mb-0.5">まだ不足している情報</p>
+                                <p className="text-gray-500 leading-relaxed">{ins.missing}</p>
+                              </div>
+                            )}
                           </div>
                         )}
-                        {ins.missing && (
-                          <div className="bg-amber-50 border border-amber-100 rounded px-2 py-1">
-                            <p className="text-amber-600 font-medium mb-0.5">不足している情報</p>
-                            <p className="text-gray-600 leading-relaxed">{ins.missing}</p>
+                        {ins.score === 2 && (
+                          <div className="space-y-1">
+                            {ins.summary && (
+                              <div className="bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                                <p className="text-blue-600 font-medium mb-0.5">確認待ち</p>
+                                <p className="text-gray-600 leading-relaxed">{ins.summary}</p>
+                              </div>
+                            )}
+                            {ins.missing && (
+                              <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                                <p className="text-gray-500 font-medium mb-0.5">確認が必要な点</p>
+                                <p className="text-gray-500 leading-relaxed">{ins.missing}</p>
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {!ins.gathered && !ins.missing && (
-                          <p className="text-gray-300 italic">まだ話題に触れていません</p>
                         )}
                       </div>
                     ) : (
@@ -350,6 +397,14 @@ export default function InterviewPage() {
 
         {/* チャットエリア */}
         <div className="flex-1 flex flex-col overflow-hidden">
+
+          {/* 今聞いていること（directive がある場合のみ） */}
+          {directive && (
+            <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2 flex items-start gap-2">
+              <span className="text-indigo-400 text-xs font-medium shrink-0 mt-0.5">今聞いていること</span>
+              <span className="text-indigo-700 text-xs leading-relaxed">{directive.focusQuestion ?? directive.focusItemId}</span>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             {messages.map((msg, i) => (
@@ -417,7 +472,9 @@ export default function InterviewPage() {
                 ref={textareaRef}
                 value={input}
                 onChange={e => {
-                  setInput(e.target.value);
+                  const val = e.target.value;
+                  setInput(val);
+                  try { localStorage.setItem(draftKey, val); } catch { /* ignore */ }
                   const el = e.target;
                   el.style.height = 'auto';
                   el.style.height = `${el.scrollHeight}px`;

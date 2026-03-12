@@ -12,6 +12,14 @@ interface ChecklistItem {
   order: number;
 }
 
+interface HistoryEntry {
+  id: string;
+  answer: string | null;
+  source: 'ai' | 'manual';
+  reasoning: string | null;
+  createdAt: number;
+}
+
 export default function ChecklistPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -21,6 +29,8 @@ export default function ChecklistPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [historyItemId, setHistoryItemId] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -58,6 +68,26 @@ export default function ChecklistPage() {
     setEditingId(null);
     setEditText('');
     setSaving(false);
+  }
+
+  async function openHistory(item: ChecklistItem) {
+    setHistoryItemId(item.id);
+    const res = await fetch(`/api/projects/${id}/checklist/${item.id}`);
+    const data = await res.json();
+    setHistory(data);
+  }
+
+  async function revert(item: ChecklistItem) {
+    const res = await fetch(`/api/projects/${id}/checklist/${item.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'revert' }),
+    });
+    const updated = await res.json();
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updated } : i));
+    // 履歴を再取得
+    const histRes = await fetch(`/api/projects/${id}/checklist/${item.id}`);
+    setHistory(await histRes.json());
   }
 
   async function toggleComplete(item: ChecklistItem) {
@@ -166,6 +196,48 @@ export default function ChecklistPage() {
               ) : item.answer ? (
                 <div className="border-t border-gray-100 px-4 pb-4 pt-3">
                   <p className="text-sm text-gray-600 whitespace-pre-wrap">{item.answer}</p>
+                  <button
+                    onClick={() => historyItemId === item.id ? setHistoryItemId(null) : openHistory(item)}
+                    className="mt-2 text-xs text-gray-400 hover:text-gray-600 underline"
+                  >
+                    {historyItemId === item.id ? '履歴を閉じる' : '変更履歴'}
+                  </button>
+                  {/* 履歴パネル */}
+                  {historyItemId === item.id && (
+                    <div className="mt-3 space-y-2">
+                      {history.length === 0 ? (
+                        <p className="text-xs text-gray-400">変更履歴はありません</p>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium text-gray-500">変更履歴</p>
+                            <button
+                              onClick={() => revert(item)}
+                              className="text-xs text-amber-600 hover:underline"
+                            >
+                              ひとつ前に戻す
+                            </button>
+                          </div>
+                          {history.map(h => (
+                            <div key={h.id} className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-xs">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${h.source === 'ai' ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-200 text-gray-600'}`}>
+                                  {h.source === 'ai' ? 'AI' : '手動'}
+                                </span>
+                                <span className="text-gray-400">
+                                  {new Date(h.createdAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className="text-gray-600 whitespace-pre-wrap">{h.answer ?? '（空）'}</p>
+                              {h.reasoning && h.reasoning !== 'revert' && (
+                                <p className="text-gray-400 mt-1 italic">根拠: {h.reasoning}</p>
+                              )}
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>

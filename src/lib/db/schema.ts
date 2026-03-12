@@ -51,6 +51,16 @@ export const outputs = sqliteTable('outputs', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
 
+// checklist_item_history: チェック項目の変更履歴
+export const checklistItemHistory = sqliteTable('checklist_item_history', {
+  id: text('id').primaryKey(),
+  checklistItemId: text('checklist_item_id').notNull().references(() => checklistItems.id),
+  answer: text('answer'),
+  source: text('source', { enum: ['ai', 'manual'] }).notNull(),
+  reasoning: text('reasoning'), // AI更新時の根拠
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+});
+
 // user_settings: ユーザーごとの設定（APIキー等）
 export const userSettings = sqliteTable('user_settings', {
   key: text('key').primaryKey(),

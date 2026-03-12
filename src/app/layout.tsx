@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "こうこくーる",
-  description: "個人開発者・クリエイターの発信伴走AIツール",
+  title: "アドプロ",
+  description: "店舗向けInstagram投稿アシスタント",
 };
 
 export default function RootLayout({
