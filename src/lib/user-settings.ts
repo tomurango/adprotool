@@ -9,11 +9,15 @@ export type SettingKey =
   | 'ai_provider';
 
 export async function getSetting(key: SettingKey): Promise<string | null> {
-  const row = await db
-    .select()
-    .from(userSettings)
-    .where(eq(userSettings.key, key));
-  return row[0]?.value ?? null;
+  try {
+    const row = await db
+      .select()
+      .from(userSettings)
+      .where(eq(userSettings.key, key));
+    return row[0]?.value ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function setSetting(key: SettingKey, value: string): Promise<void> {
