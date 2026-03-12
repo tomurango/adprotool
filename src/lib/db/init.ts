@@ -68,17 +68,6 @@ export function initDb() {
   `);
 
   db.run(sql`
-    CREATE TABLE IF NOT EXISTS checklist_item_history (
-      id TEXT PRIMARY KEY,
-      checklist_item_id TEXT NOT NULL REFERENCES checklist_items(id),
-      answer TEXT,
-      source TEXT NOT NULL CHECK(source IN ('ai', 'manual')),
-      reasoning TEXT,
-      created_at INTEGER NOT NULL
-    )
-  `);
-
-  db.run(sql`
     CREATE TABLE IF NOT EXISTS user_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
